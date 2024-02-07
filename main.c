@@ -32,11 +32,39 @@
 #define USE_FDS 15
 #endif
 
-int print_entry(const char *filepath, const struct stat *info,
-                const int typeflag, struct FTW *pathinfo) {
+int fileContainsString(const char *filepath, const char *icon) {
+  char command[256];
+  memset(command, 0, 256);
+  strncat(command, "grep ", 6);
+  strncat(command, icon, strlen(icon));
+  strncat(command, " ", 2);
+  strncat(command, filepath, strlen(filepath));
+
+  printf("file:\t\t%s\n", filepath);
+  printf("command:\t%s\n", command);
+
+  FILE *result = popen(command, "r");
+  if (result == NULL) {
+    return errno;
+  }
+
+  char output[256];
+  if (!fgets(output, 256, result)) {
+    return 0;
+  }
+
+  return 1;
+}
+
+int handleFile(const char *filepath, const struct stat *info,
+               const int typeflag, struct FTW *pathinfo) {
   switch (typeflag) {
   case FTW_F:
     printf(" %s\n", filepath);
+    // TODO: Get icon names from input file
+    if (fileContainsString(filepath, "icon-name")) {
+      printf("file contains string\n\n");
+    }
     break;
   case FTW_D:
   case FTW_DP:
@@ -50,14 +78,14 @@ int print_entry(const char *filepath, const struct stat *info,
   return 0;
 }
 
-int print_directory_tree(const char *const dirpath) {
+int traverseFiles(const char *const dirpath) {
   int result;
 
   if (dirpath == NULL || *dirpath == '\0') {
     return errno = EINVAL;
   }
 
-  result = nftw(dirpath, print_entry, USE_FDS, FTW_PHYS);
+  result = nftw(dirpath, handleFile, USE_FDS, FTW_PHYS);
   if (result >= 0) {
     errno = result;
   }
@@ -66,12 +94,12 @@ int print_directory_tree(const char *const dirpath) {
 }
 
 int main(int argc, char *argv[]) {
-  char *baseDir = (char *)malloc(sizeof(char) * 256);
+  char baseDir[256];
 
   printf("Please enter the directory containing the code to scan: ");
   scanf("%s", baseDir);
 
-  if (print_directory_tree(baseDir)) {
+  if (traverseFiles(baseDir)) {
     fprintf(stderr, "%s.\n", strerror(errno));
     return EXIT_FAILURE;
   }
