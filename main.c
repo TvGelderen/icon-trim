@@ -1,9 +1,22 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
+
+int shouldScanFile(const char *fileName) {
+  const char *extension = strrchr(fileName, '.');
+  if (extension) {
+    if (strncmp(extension, ".json", 5) == 0) {
+      printf("skipping JSON file\n");
+      return 0;
+    }
+    return 1;
+  }
+  return 0;
+}
 
 int fileContainsString(const char *filepath, const char *icon) {
   char command[256];
@@ -26,15 +39,17 @@ int fileContainsString(const char *filepath, const char *icon) {
     return 0;
   }
 
+  pclose(result);
+
   return 1;
 }
 
-void listdir(const char *name) {
+int checkFiles(const char *basePath, const char *icon) {
   DIR *dir;
   struct dirent *entry;
 
-  if (!(dir = opendir(name)))
-    return;
+  if (!(dir = opendir(basePath)))
+    return 0;
 
   while ((entry = readdir(dir)) != NULL) {
     if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
@@ -42,35 +57,47 @@ void listdir(const char *name) {
     }
 
     char path[1024];
-    snprintf(path, sizeof(path), "%s/%s", name, entry->d_name);
-    printf("%s\n", path);
+    snprintf(path, sizeof(path), "%s/%s", basePath, entry->d_name);
+    printf("\n%s\n", path);
 
     if (entry->d_type == DT_DIR) {
-      listdir(path);
-    } else {
-      if (fileContainsString(path, "icon-name")) {
-        printf("file contains string\n\n");
-      } else {
-        printf("file does not contain string\n\n");
+      if (checkFiles(path, icon)) {
+        return 1;
       }
+    } else if (shouldScanFile(entry->d_name) &&
+               fileContainsString(path, icon)) {
+      return 1;
     }
   }
+
   closedir(dir);
+
+  return 0;
 }
 
-void getIconNames(const char *filePath) {
+void trimIconFile(const char *iconPath, const char *trimmedIconPath,
+                  const char *startDir) {
   char command[256];
+
+  // Duplicate the icon file
   memset(command, 0, 256);
-  strcpy(command, "jq '.icons | keys' ");
-  strncat(command, filePath, strlen(filePath));
+  strcpy(command, "jq .icons ");
+  strncat(command, iconPath, strlen(iconPath));
+  strncat(command, " > ", 4);
+  strncat(command, trimmedIconPath, strlen(trimmedIconPath));
 
-  printf("jq command: %s\n\n", command);
+  printf("jq command: %s\n", command);
+  int rc = system(command);
+  if (rc != 0) {
+    printf("command execution failed\n");
+    return;
+  }
 
-  FILE *result = popen(command, "r");
+  FILE *result = fopen(trimmedIconPath, "r");
 
   char line[256];
   while (fgets(line, 256, result)) {
-    if (line[0] != '[' && line[0] != ']') {
+    if (line[0] != '{' && line[0] != '}') {
       char icon[256];
       memset(icon, 0, 256);
       int idx = 0;
@@ -87,24 +114,42 @@ void getIconNames(const char *filePath) {
         icon[iconLenth++] = line[idx];
       }
 
-      printf("%s\n", icon);
+      if (!checkFiles(startDir, icon)) {
+        memset(command, 0, 256);
+        strcpy(command, "jq 'del(.");
+        strncat(command, icon, strlen(icon));
+        strncat(command, ")' ", 4);
+        strncat(command, trimmedIconPath, strlen(trimmedIconPath));
+        strncat(command, " | sponge ", 11);
+        strncat(command, trimmedIconPath, strlen(trimmedIconPath));
+
+        printf("%s\n", command);
+
+        rc = system(command);
+        if (rc != 0) {
+          printf("command execution failed\n");
+          return;
+        }
+      }
     }
   }
+
+  fclose(result);
 }
 
 int main(int argc, char *argv[]) {
   char iconFilePath[256];
+  char trimmedIconFilePath[256];
   char startDir[256];
 
   printf("Please enter the path to the icon file: ");
   scanf("%s", iconFilePath);
-
-  getIconNames(iconFilePath);
-
+  printf("Please enter the path for the trimmed icon file: ");
+  scanf("%s", trimmedIconFilePath);
   printf("Please enter the directory to scan: ");
   scanf("%s", startDir);
 
-  listdir(startDir);
+  trimIconFile(iconFilePath, trimmedIconFilePath, startDir);
 
   return 0;
 }
