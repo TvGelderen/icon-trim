@@ -8,11 +8,7 @@
 
 int shouldScanFile(const char *fileName) {
   const char *extension = strrchr(fileName, '.');
-  if (extension) {
-    if (strncmp(extension, ".json", 5) == 0) {
-      printf("skipping JSON file\n");
-      return 0;
-    }
+  if (extension && strncmp(extension, ".razor", 6) == 0) {
     return 1;
   }
   return 0;
@@ -81,7 +77,7 @@ void trimIconFile(const char *iconPath, const char *trimmedIconPath,
 
   // Duplicate the icon file
   memset(command, 0, 256);
-  strcpy(command, "jq .icons ");
+  strcpy(command, "jq . ");
   strncat(command, iconPath, strlen(iconPath));
   strncat(command, " > ", 4);
   strncat(command, trimmedIconPath, strlen(trimmedIconPath));
@@ -93,7 +89,13 @@ void trimIconFile(const char *iconPath, const char *trimmedIconPath,
     return;
   }
 
-  FILE *result = fopen(trimmedIconPath, "r");
+  // Get icon list
+  memset(command, 0, 256);
+  strcpy(command, "jq .icons ");
+  strncat(command, trimmedIconPath, strlen(trimmedIconPath));
+
+  printf("jq command: %s\n", command);
+  FILE *result = popen(command, "r");
 
   char line[256];
   while (fgets(line, 256, result)) {
@@ -115,10 +117,11 @@ void trimIconFile(const char *iconPath, const char *trimmedIconPath,
       }
 
       if (!checkFiles(startDir, icon)) {
+        // Remove icon from the file
         memset(command, 0, 256);
-        strcpy(command, "jq 'del(.");
+        strcpy(command, "jq 'del(.icons.\"");
         strncat(command, icon, strlen(icon));
-        strncat(command, ")' ", 4);
+        strncat(command, "\")' ", 6);
         strncat(command, trimmedIconPath, strlen(trimmedIconPath));
         strncat(command, " | sponge ", 11);
         strncat(command, trimmedIconPath, strlen(trimmedIconPath));
@@ -134,7 +137,7 @@ void trimIconFile(const char *iconPath, const char *trimmedIconPath,
     }
   }
 
-  fclose(result);
+  pclose(result);
 }
 
 int main(int argc, char *argv[]) {
